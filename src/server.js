@@ -2,17 +2,14 @@ const express = require("express");
 const mysql = require("mysql");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcrypt");
+const argon2 = require("argon2");
 const cookieParser = require("cookie-parser");
 const dotenv = require('dotenv');
 
-const salt = 10;
-const result = dotenv.config();
-
-if (result.error) {
-  console.error('Error loading .env file:', result.error);
-  process.exit(1);
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
 }
+
 const jwtSecret = process.env.JWT_SECRET
 const dbHost = process.env.DB_HOST
 const dbUser = process.env.DB_USER 
@@ -98,13 +95,9 @@ app.post("/register", (req, res) => {
       }
 
       // If both username and email are unique, proceed with registration
-      bcrypt.hash(req.body.password.toString(), salt, (err, hash) => {
-        if (err) {
-          return res.status(500).json({ Error: "Error hashing password" });
-        }
-
+      argon2.hash(req.body.password.toString()).then((hash) => {
         const formData = [req.body.username, req.body.email, hash];
-
+    
         // Insert the new user into the database
         db.query(insertUserQuery, [formData], (err, result) => {
           if (err) {
@@ -112,7 +105,7 @@ app.post("/register", (req, res) => {
           }
           return res.status(201).json({ Status: "Success" });
         });
-      });
+      });   
     });
   });
 });
@@ -122,23 +115,23 @@ app.post('/login', (req, res) => {
     db.query(sql, [req.body.username], (err, data) => {
         if(err) return res.json({Error: "Login error in server"});
         if(data.length > 0){
-            bcrypt.compare(req.body.password.toString(), data[0].password, (err, response) => {
-                if(err) return res.json({Error: "Password compare error"});
+            const hashedPassword = data[0].password;
+            argon2.verify(hashedPassword, req.body.password.toString()).then((response) => {
                 if(response){
                     const userId = data[0].id;
                     const username = data[0].username;
-                    const token = jwt.sign({userId, username}, "jwt-key", {expiresIn: '1d'});
+                    const token = jwt.sign({userId, username}, jwtSecret, {expiresIn: '1d'});
                     res.cookie('token', token);
                     return res.json({Status: "Success"})
                 } else {
                     return res.json({Error: "Wrong Password"});
                 }
-            })
+            });
         } else {
             return res.json({Error: "Username not registered"});
         }
     })
-})
+});
 
 app.post('/save-calc', verifyUser, (req, res) => {
     const { date, age, weight, height, bmi, calories, bodyWeight } = req.body;
