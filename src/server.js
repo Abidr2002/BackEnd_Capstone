@@ -121,7 +121,7 @@ app.post('/login', (req, res) => {
                     const userId = data[0].id;
                     const username = data[0].username;
                     const token = jwt.sign({userId, username}, jwtSecret, {expiresIn: '1d'});
-                    res.cookie('token', token);
+                    res.cookie('token', token, { secure: true, sameSite: 'None' });
                     return res.json({Status: "Success"})
                 } else {
                     return res.json({Error: "Wrong Password"});
