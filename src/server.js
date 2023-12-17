@@ -1,16 +1,15 @@
 const express = require("express");
 const mysql = require("mysql");
 const cors = require("cors");
-const jwt = require("jsonwebtoken");
 const argon2 = require("argon2");
-const cookieParser = require("cookie-parser");
 const dotenv = require('dotenv');
+const session = require("express-session");
 
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
 }
 
-const jwtSecret = process.env.JWT_SECRET
+const sessionSecret = process.env.SESSION_SECRET
 const dbHost = process.env.DB_HOST
 const dbUser = process.env.DB_USER 
 const dbPassword = process.env.DB_PASSWORD
@@ -36,40 +35,67 @@ app.use((err, req, res, next) => {
     next();
 });
 
-app.use(cookieParser());
+app.use(
+  session({
+      secret: sessionSecret,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+          maxAge: 86400000, // 24 hours
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+      },
+  })
+);
 
-const db = mysql.createConnection({
+const dbConfig = {
     host: dbHost,
     user: dbUser,
     password: dbPassword,
     database: dbName,
-    port: dbPort
-});
+    port: dbPort
+};
 
-db.connect((err) => {
+let db;
+
+function handleDisconnect() {
+  db = mysql.createConnection(dbConfig);
+
+  db.connect((err) => {
     if (err) {
       console.error('Error connecting to database:', err);
+      // Mencoba menyambung kembali setelah penundaan
+      setTimeout(handleDisconnect, 5000); // Misalnya, mencoba setiap 5 detik
       return;
     }
     console.log('Connected to database!');
-});
+  });
 
-const verifyUser = (req, res, next) => {
-    const token = req.cookies.token;
-    if (!token) {
-        return res.status(401).json({ Error: "Not Authenticated" });
+  db.on('error', (err) => {
+    console.error('Database error:', err);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
+      handleDisconnect();
     } else {
-        jwt.verify(token, jwtSecret, (err, decoded) => {
-            if (err) return res.status(401).json({ Error: "Not Correct Token", Details: err.message });
-            req.username = decoded.username;
-            req.userId = decoded.userId;
-            next();
-        });
+      throw err;
     }
+  });
 }
 
-app.get('/', verifyUser, (req, res) => {
-    return res.json({ Status: "Success", userId: req.userId, data: req.username });
+handleDisconnect();
+
+const verifyUser = (req, res, next) => {
+  const sessionUser = req.session.user;
+  if (!sessionUser) {
+      return res.status(401).json({ Error: "Not Authenticated" });
+  } else {
+      req.username = sessionUser.username;
+      req.userId = sessionUser.userId;
+      next();
+  }
+};
+
+app.get("/", verifyUser, (req, res) => {
+  return res.json({ Status: "Success", userId: req.userId, data: req.username });
 });
 
 app.post("/register", (req, res) => {
@@ -113,30 +139,32 @@ app.post("/register", (req, res) => {
     });
 });
 
-app.post('/login', (req, res) => {
-    const sql = "SELECT id, username, password FROM account WHERE username = ?";
-    db.query(sql, [req.body.username], (err, data) => {
-        if (err) {
-            return res.status(500).json({ Error: "Login error in server", Details: err });
-        }
-        if (data.length > 0) {
-            const hashedPassword = data[0].password;
-            argon2.verify(hashedPassword, req.body.password.toString()).then((response) => {
-                if (response) {
-                    const userId = data[0].id;
-                    const username = data[0].username;
-                    const token = jwt.sign({ userId, username }, jwtSecret, { expiresIn: '1d' });
-                    res.cookie('token', token);
-                    return res.status(200).json({ Status: "Success" });
-                } else {
-                    return res.status(401).json({ Error: "Wrong Password" });
-                }
-            });
-        } else {
-            return res.status(404).json({ Error: "Username not registered" });
-        }
-    });
+app.post("/login", (req, res) => {
+  const sql = "SELECT id, username, password FROM account WHERE username = ?";
+  db.query(sql, [req.body.username], (err, data) => {
+      if (err) {
+          return res.status(500).json({ Error: "Login error in server", Details: err });
+      }
+      if (data.length > 0) {
+          const hashedPassword = data[0].password;
+          argon2.verify(hashedPassword, req.body.password.toString()).then((response) => {
+              if (response) {
+                  const userId = data[0].id;
+                  const username = data[0].username;
+
+                  req.session.user = { userId, username };
+
+                  return res.status(200).json({ Status: "Success" });
+              } else {
+                  return res.status(401).json({ Error: "Wrong Password" });
+              }
+          });
+      } else {
+          return res.status(404).json({ Error: "Username not registered" });
+      }
+  });
 });
+
 
 app.post('/save-calc', verifyUser, (req, res) => {
     const { date, age, weight, height, bmi, calories, bodyWeight } = req.body;
@@ -174,9 +202,17 @@ app.get('/get-calc', verifyUser, (req, res) => {
     });
 });
 
-app.get('/logout', (req, res) => {
-    res.clearCookie('token');
-    return res.status(200).json({ Status: "Success" });
+app.get("/logout", (req, res) => {
+  req.session.destroy((err) => {
+      if (err) {
+          console.error("Error destroying session:", err);
+          return res.status(500).json({ Error: "Error during logout" });
+      }
+
+      res.clearCookie("connect.sid");
+
+      return res.status(200).json({ Status: "Success" });
+  });
 });
 
 const PORT = process.env.PORT || 8888;
