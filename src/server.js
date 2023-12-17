@@ -17,6 +17,9 @@ const dbName = process.env.DB_NAME
 const dbPort = process.env.DB_PORT 
 
 const app = express();
+
+app.set("trust proxy", 1)
+
 app.use(express.json());
 
 const corsOptions = {
@@ -47,6 +50,7 @@ app.use(
       },
   })
 );
+
 
 const dbConfig = {
     host: dbHost,
