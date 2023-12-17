@@ -20,7 +20,7 @@ const app = express();
 app.use(express.json());
 
 const corsOptions = {
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:5173", "https://fitlife-hub.vercel.app"],
     methods: ["POST", "GET"],
     credentials: true,
 };
