@@ -4,6 +4,7 @@ const cors = require("cors");
 const argon2 = require("argon2");
 const dotenv = require('dotenv');
 const session = require("express-session");
+const MemoryStore = require('memorystore')(session);
 
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
@@ -33,7 +34,7 @@ app.use(cors(corsOptions));
 app.use((err, req, res, next) => {
     if (err.name === 'UnauthorizedError') {
         // Handle CORS authorization error
-        return res.status(401).json({ Error: 'Unauthorized', Details: err.message });
+        return res.status(401).json({ Error: 'Unauthorized CORS', Details: err.message });
     }
     next();
 });
@@ -43,11 +44,9 @@ app.use(
       secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
-      cookie: {
-          maxAge: 86400000, // 24 hours
-          httpOnly: true,
-          secure: true,
-      },
+      store: new MemoryStore({
+        checkPeriod: 86400000,
+      }),
   })
 );
 
