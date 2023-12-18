@@ -24,7 +24,7 @@ app.set("trust proxy", 1)
 app.use(express.json());
 
 const corsOptions = {
-    origin: ["http://localhost:5173", "https://fitlifehub.vercel.app/"],
+    origin: ["http://localhost:5173", "https://fitlifehub.vercel.app"],
     methods: ["POST", "GET"],
     credentials: true,
 };
